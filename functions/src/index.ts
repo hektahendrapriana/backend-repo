@@ -1,5 +1,5 @@
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+// import * as admin from 'firebase-admin';
 import * as bodyParser from 'body-parser';
 import * as dotenv from "dotenv";
 import morgan from "morgan";
@@ -9,27 +9,28 @@ import cors from "cors";
 import passport from "passport";
 import userRoutes from "./routes/userRoutes";
 import authRoutes from './routes/authRoutes';
-import * as serviceAccount from "./config/firebaseConfig.json";
+// import * as serviceAccount from "./config/firebaseConfig.json";
 import express, { Express } from "express";
 
 dotenv.config();
 
-const ServiceAccountPARAMS = {
-    type: serviceAccount.type,
-    projectId: serviceAccount.project_id,
-    privateKeyId: serviceAccount.private_key_id,
-    privateKey: serviceAccount.private_key,
-    clientEmail: serviceAccount.client_email,
-    clientId: serviceAccount.client_id,
-    authUri: serviceAccount.auth_uri,
-    tokenUri: serviceAccount.token_uri,
-    authProviderX509CertUrl: serviceAccount.auth_provider_x509_cert_url,
-    clientC509CertUrl: serviceAccount.client_x509_cert_url,
-};
+// const ServiceAccountPARAMS = {
+//     type: serviceAccount.type,
+//     projectId: serviceAccount.project_id,
+//     privateKeyId: serviceAccount.private_key_id,
+//     privateKey: serviceAccount.private_key,
+//     clientEmail: serviceAccount.client_email,
+//     clientId: serviceAccount.client_id,
+//     authUri: serviceAccount.auth_uri,
+//     tokenUri: serviceAccount.token_uri,
+//     authProviderX509CertUrl: serviceAccount.auth_provider_x509_cert_url,
+//     clientC509CertUrl: serviceAccount.client_x509_cert_url,
+// };
 
-admin.initializeApp({
-  credential: admin.credential.cert(ServiceAccountPARAMS)
-})
+
+// admin.initializeApp({
+//   credential: admin.credential.cert(ServiceAccountPARAMS)
+// })
 
 const app: Express = express();
 if (process.env.NODE_ENV === 'development') {
@@ -60,6 +61,5 @@ app.get('/hello-world',(req: any,res: any) =>{
     return res.status(200).json({message:'hello world'})
 })
 
-export const db = admin.firestore()
 export const api = functions.https.onRequest(app)
 

@@ -1,9 +1,15 @@
+const { onRequest } = require("firebase-functions/v2/https");
 import { RequestHandler } from 'express';
 import { User } from '../models/user';
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '../index';
-import { encrypt } from '../middleware/utils/encryption';
+import { db, authDb, firebaseConfigWeb } from '../config/firebaseConfig';
+import { encrypt, decrypt } from '../middleware/utils/encryption';
 
+import { initializeApp } from 'firebase/app';
+import { EmailAuthProvider, deleteUser, getAuth, reauthenticateWithCredential, signInWithEmailAndPassword, updateEmail, updatePassword, updateProfile } from "firebase/auth";
+
+const appWebLogin = initializeApp(firebaseConfigWeb);
+const auth = getAuth(appWebLogin);
 
 export const getUsers:RequestHandler = async (req: any, res: any) => {
       try {
@@ -147,7 +153,7 @@ export const changePassword:RequestHandler = async (req: any, res: any) => {
       }
 };
 
-export const deleteUser:RequestHandler = async (req: any, res: any) => {
+export const deleteUserById:RequestHandler = async (req: any, res: any) => {
       const userId = req.params.id
       try {
             const document = db.collection("users").doc(userId);
@@ -165,4 +171,155 @@ export const deleteUser:RequestHandler = async (req: any, res: any) => {
       } catch (error) {
             return res.status(500).json()
       }
+};
+
+// THIS is for database AUTH
+export const getListUsersAuth:RequestHandler = onRequest( async(req: any, res: any) => {
+      const nextPageToken = req.params.pageToken;
+      await authDb.listUsers(1000, nextPageToken).then( async (usersResponse) => {
+            if (usersResponse.pageToken)
+            {
+                  await authDb.listUsers(1000, usersResponse.pageToken).then( async (listUsers) => {
+                        return res.status(200).json({message: 'Get All successfully', data: listUsers.users})
+                  })
+                  .catch((error) => {
+                        return res.status(500).json({message: 'User not found',   data: error})
+                  });
+            }
+            else
+            {
+                  return res.status(200).json({message: 'Get All successfully', data: usersResponse.users})
+            }
+      })
+      .catch((error) => {
+            return res.status(500).json({message: 'User not found',   data: error})
+      });
+});
+
+export const getUserByIdAuth:RequestHandler = async (req: any, res: any) => {
+      const userId = req.params.id;
+      await authDb.getUser(userId).then( async (userResponse) => {
+            return res.status(200).json({message: 'Get User By ID successfully',   data: userResponse})
+      })
+      .catch((error) => {
+            return res.status(500).json({message: 'User not found',   data: error})
+      });
+};
+
+export const updateUserAuth:RequestHandler = async (req: any, res: any) => {
+      const userId = req.params.id
+      
+      const displayName = (req.body as { displayName:string } ).displayName; 
+      const email = (req.body as { email:string } ).email;  
+      const phone = (req.body as { phone:string } ).phone; 
+
+      await authDb.getUser(userId).then( async (userResponse) => {
+            const passwordHash: any | undefined = userResponse.passwordHash?.split('password=');
+            const password = decrypt(passwordHash[1]);
+            await signInWithEmailAndPassword(auth, userResponse.email!, password).then( async (userCredential) => {
+                  if( displayName !== null )
+                  {
+                        await updateProfile(userCredential.user, { displayName: displayName, photoURL: "" } );
+                  }
+
+                  if( email !== null )
+                  {
+                        await updateEmail(userCredential.user, email );
+                  }
+
+                  await authDb.updateUser(
+                        userId,
+                        {
+                              displayName: displayName,
+                              email: email,
+                              phoneNumber: phone
+                        }
+                  ).then( async () => {
+                        return res.status(200).json({message: 'User Updated successfully', data: { id: userId, displayName: displayName, email: email, phone: phone }})
+                  })
+                  .catch((error) => {
+                        return res.status(200).json({message: 'User not found', data: error})
+                  });
+            })
+            .catch((error) => {
+                  return res.status(500).json({message: 'Wrong Email or Password', data: error});
+            });
+      })
+      .catch((error) => {
+            return res.status(500).json({message: 'User not found',   data: error})
+      });
+};
+
+export const changePasswordAuth:RequestHandler = async (req: any, res: any) => {
+      const userId = req.params.id
+
+      const newPassword = (req.body as { password:string } ).password; 
+
+      await authDb.getUser(userId).then( async (userResponse) => {
+            const passwordHash: any | undefined = userResponse.passwordHash?.split('password=');
+            const password = decrypt(passwordHash[1]);
+            await signInWithEmailAndPassword(auth, userResponse.email!, password).then( async (userCredential) => {
+                  console.log(userCredential.user)
+                  if( newPassword === null || typeof(newPassword) === 'undefined' || newPassword === '' )
+                  {
+                        return res.status(500).json({message: 'Password Cant be empty'})
+                  }
+                  else
+                  {
+                        const newEncryptedPassword = encrypt( newPassword );
+
+                        const credential = EmailAuthProvider.credential(userCredential.user.email!, password);
+                        await reauthenticateWithCredential(auth.currentUser!, credential).then(async( responseCreddential) => {
+                              console.log(responseCreddential)
+                              await updatePassword(auth.currentUser!, newEncryptedPassword).then( async () => {
+                                    await authDb.updateUser( userId, { password: newEncryptedPassword } ).then( async () => {
+                                          return res.status(200).json({message: 'Change Pasword successfully', data: { id: userId, email: userResponse.email, displayName: userResponse.displayName }})
+                                    })
+                                    .catch((error) => {
+                                          return res.status(200).json({message: 'User not found', data: error})
+                                    });
+                              })
+                              .catch((error) => {
+                                    return res.status(200).json({message: 'User not found', data: error})
+                              });
+                        }).catch((error) => {
+                              return res.status(200).json({message: 'User not found', data: error})
+                        });
+                        
+                  }
+            })
+            .catch((error) => {
+                  return res.status(500).json({message: 'Wrong Email or Password', data: error});
+            });
+      })
+      .catch((error) => {
+            return res.status(500).json({message: 'User not found',   data: error})
+      });
+};
+
+export const deleteUserAuthById:RequestHandler = async (req: any, res: any) => {
+      const userId = req.params.id
+      await authDb.getUser(userId).then( async (userResponse) => {
+            const passwordHash: any | undefined = userResponse.passwordHash?.split('password=');
+            const password = decrypt(passwordHash[1]);
+            await signInWithEmailAndPassword(auth, userResponse.email!, password).then( async (userCredential) => {
+                  await deleteUser(userCredential.user).then( async () => {
+                        await authDb.deleteUser(userId).then( async () => {
+                              return res.status(200).json({message: 'User Deleted successfully',   data: { id: userId, email: userResponse.email, displayName: userResponse.displayName }})
+                        })
+                        .catch((error) => {
+                              return res.status(200).json({message: 'User not found', data: error})
+                        });
+                  })
+                  .catch((error) => {
+                        return res.status(200).json({message: 'User not found', data: error})
+                  });
+            })
+            .catch((error) => {
+                  return res.status(500).json({message: 'Wrong Email or Password', data: error});
+            });
+      })
+      .catch((error) => {
+            return res.status(500).json({message: 'User not found',   data: error})
+      });
 };

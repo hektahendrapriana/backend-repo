@@ -1,7 +1,7 @@
 import passport from "passport";
 import { Strategy } from "passport-jwt"
 import { decrypt } from "../middleware/utils/encryption";
-import { db } from "../index";
+import { db, authDb } from "./firebaseConfig";
 
 const jwtSecret: string = "7D6425FAC26477182B78C8F2F39CE";
 /**
@@ -39,10 +39,22 @@ const jwtLogin = new Strategy(jwtOptions, async (payload, done) => {
     const doc =  db.collection('users').doc(payload.data._id)
     const item = await doc.get()
     const user = item.data()
-    return typeof(user) !== 'undefined' ? !user ? done(null, false) : done(null, user) : done(null, false)
+    if( typeof( user ) !== 'undefined' )
+    {
+      return done(null, user)
+    }
+    else
+    {
+      await authDb.getUser(payload.data._id).then( async (userResponse) => {
+        return done(null, userResponse)
+      })
+      .catch((error) => {
+            return done(null, false)
+      });
+    }
   }
   catch (error) {
-    return done(error, false)
+    return done(null, false)
   }
 })
 
